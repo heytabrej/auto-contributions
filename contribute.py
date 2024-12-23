@@ -1,0 +1,122 @@
+import argparse
+import os
+from datetime import datetime, timedelta
+from random import randint
+from subprocess import Popen
+import sys
+
+
+def main(def_args=sys.argv[1:]):
+    args = arguments(def_args)
+    curr_date = datetime.now()
+    directory = 'repository-' + curr_date.strftime('%Y-%m-%d-%H-%M-%S')
+    repository = args.repository
+    user_name = args.user_name
+    user_email = args.user_email
+
+    if repository is not None:
+        start = repository.rfind('/') + 1
+        end = repository.rfind('.')
+        directory = repository[start:end]
+
+    no_weekends = args.no_weekends
+    frequency = args.frequency
+    days_before = args.days_before
+    days_after = args.days_after
+
+    if days_before < 0:
+        sys.exit('Error: days_before must not be negative.')
+    if days_after < 0:
+        sys.exit('Error: days_after must not be negative.')
+
+    # Create and navigate to the repository directory
+    os.mkdir(directory)
+    os.chdir(directory)
+    print(f"Created and switched to directory: {directory}")
+
+    run(['git', 'init', '-b', 'main'])
+
+    # Configure user details
+    if user_name:
+        run(['git', 'config', 'user.name', user_name])
+        print(f"Configured user.name: {user_name}")
+    if user_email:
+        run(['git', 'config', 'user.email', user_email])
+        print(f"Configured user.email: {user_email}")
+
+    # Define start date for contributions
+    start_date = curr_date.replace(hour=20, minute=0) - timedelta(days=days_before)
+
+    # Generate commits
+    for day in (start_date + timedelta(n) for n in range(days_before + days_after)):
+        if (not no_weekends or day.weekday() < 5) and randint(0, 100) < frequency:
+            for commit_time in (day + timedelta(minutes=m) for m in range(contributions_per_day(args))):
+                contribute(commit_time)
+
+    # Add remote repository and push
+    if repository:
+        run(['git', 'remote', 'add', 'origin', repository])
+        run(['git', 'branch', '-M', 'main'])
+        run(['git', 'push', '-u', 'origin', 'main'])
+        print(f"Pushed commits to remote repository: {repository}")
+
+    print('\nRepository generation \033[92mcompleted successfully!\033[0m')
+
+
+def contribute(date):
+    """Create a commit for the given date."""
+    message_content = message(date)
+    readme_path = os.path.join(os.getcwd(), 'README.md')
+    
+    # Append message to README.md
+    with open(readme_path, 'a') as file:
+        file.write(message_content + '\n\n')
+    print(f"Appended to README.md: {message_content}")
+    
+    # Stage and commit changes
+    run(['git', 'add', '.'])
+    run(['git', 'commit', '-m', message_content, '--date', date.strftime('%Y-%m-%d %H:%M:%S')])
+    print(f"Committed with message: {message_content}")
+
+
+def run(commands):
+    """Run shell commands."""
+    print(f"Running command: {' '.join(commands)}")
+    Popen(commands).wait()
+
+
+def message(date):
+    """Generate a commit message."""
+    return date.strftime('Contribution: %Y-%m-%d %H:%M')
+
+
+def contributions_per_day(args):
+    """Determine the number of contributions for a day."""
+    max_c = min(max(args.max_commits, 1), 20)  # Clamp between 1 and 20
+    return randint(1, max_c)
+
+
+def arguments(argsval):
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-nw', '--no_weekends', action='store_true', default=False,
+                        help="Do not commit on weekends")
+    parser.add_argument('-mc', '--max_commits', type=int, default=10,
+                        help="Maximum number of commits per day (1-20, default 10)")
+    parser.add_argument('-fr', '--frequency', type=int, default=80,
+                        help="Percentage of days to make commits (default 80%)")
+    parser.add_argument('-r', '--repository', type=str,
+                        help="Remote repository URL (SSH or HTTPS)")
+    parser.add_argument('-un', '--user_name', type=str,
+                        help="Override git user.name")
+    parser.add_argument('-ue', '--user_email', type=str,
+                        help="Override git user.email")
+    parser.add_argument('-db', '--days_before', type=int, default=365,
+                        help="Number of days before today to start committing (default 365)")
+    parser.add_argument('-da', '--days_after', type=int, default=0,
+                        help="Number of days after today to commit (default 0)")
+    return parser.parse_args(argsval)
+
+
+if __name__ == "__main__":
+    main()
